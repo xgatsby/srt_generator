@@ -1,0 +1,14 @@
+# torch dan torchaudio akan diinstal secara spesifik di VM nanti
+# tergantung versi CUDA. Untuk saat ini, kita bisa mencantumkannya
+# secara generik atau mengomentarinya jika ingin lebih hati-hati.
+# Jika Anda ingin menyertakannya untuk kelengkapan:
+torch
+torchaudio
+
+# Whisper langsung dari repositori GitHub OpenAI
+git+https://github.com/openai/whisper.git
+
+# Pustaka lain dari PyPI
+transformers
+sentencepiece
+sacremoses

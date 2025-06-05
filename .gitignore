@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+*/venv/
+.venv/
+*/.venv/
+ENV/
+*/ENV/
+env/
+*/env/
+*.env
+
+# File temporary dari skrip Anda (jika ada yang spesifik)
+temp_normalized_audio.wav
+*.tmp
+
+# File log (jika Anda membuat file log lokal)
+*.log
+
+# OS specific files
+.DS_Store
+Thumbs.db
