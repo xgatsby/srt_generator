@@ -96,7 +96,7 @@ DEFAULT_APP_CONFIG = {
     "AUDIO_TARGET_LOUDNESS_LUFS": -16.0,
     "AUDIO_TARGET_LPR_DB": 15.0,
     "AUDIO_TARGET_SRATE_HZ": 16000, # Must be positive integer
-    "WHISPER_MODEL_NAME": "large-v3",
+    "WHISPER_MODEL_NAME": "medium", # atau "small"
     "WHISPER_DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
     "WHISPER_LANGUAGE": "en",
     "WHISPER_FP16": torch.cuda.is_available(),
@@ -107,7 +107,7 @@ DEFAULT_APP_CONFIG = {
 
     "MARIANMT_MODEL_PATH_EN_ID": "Helsinki-NLP/opus-mt-en-id",
     "MARIANMT_DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
-    "MARIANMT_BATCH_SIZE": 8, # Must be positive integer
+    "MARIANMT_BATCH_SIZE": 4, # atau 2
 
     # Error Handling Configs
     "MAPPING_FILE_REQUIRED": False, # If True, pipeline fails if mapping file is missing/invalid (Point 7)
