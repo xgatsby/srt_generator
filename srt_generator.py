@@ -528,9 +528,10 @@ class SRTFormatter:
             formatted_lines = lines[:self.max_lines_per_block]
             if formatted_lines:
                  formatted_lines[-1] = formatted_lines[-1][:self.max_chars_per_line-3] + "..."
+            displayed = '\\n'.join(formatted_lines)
             self.logger.warning(
                 f"SRT text truncated: Exceeded {self.max_lines_per_block} lines. "
-                f"Original: '{original_full_text}' -> Displayed: '{'\\n'.join(formatted_lines)}'"
+                f"Original: '{original_full_text}' -> Displayed: '{displayed}'"
             )
         else:
             formatted_lines = lines
