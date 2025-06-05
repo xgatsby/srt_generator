@@ -422,7 +422,7 @@ class IdiomCsiMapper:
 
     def _normalize_text(self, text: str) -> str:
         text = text.lower()
-        text = re.sub(r'[.,!?;:"']$', '', text)
+        text = re.sub(r'[.,!?;:"\']$', '', text)
         text = text.strip()
         return text
 
