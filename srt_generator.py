@@ -226,7 +226,7 @@ class TranscriptionEngine:
         if not isinstance(word_info, dict):
             self.logger.warning(f"Invalid word entry type at index {index}: {type(word_info)}. Skipping.")
             return False
-        if not all(k in word_info for k in ('text', 'start', 'end')):
+        if not all(k in word_info for k in ('word', 'start', 'end')): # Ganti 'text' menjadi 'word'
             self.logger.warning(f"Word entry missing required keys at index {index}: {word_info}. Skipping.")
             return False
         try:
