@@ -1,40 +1,3 @@
-🚀 ULTRA-OPTIMIZED Word-Level SRT Generator v3.3 (Manus Enhanced & Robustified - Revision 2: Error Handling)
-🎯 Production-Ready Enterprise Solution with AI-Powered Quality Enhancement & AVT Specialization
-⚡ Maximum Performance & Precision Implementation for English -> Indonesian Translation
-
-📝 Pipeline Overview:
-1.  Parse & Validate command-line arguments (video path, output path, mapping path).
-2.  Load & Validate configuration settings.
-3.  Initialize pipeline components (FFmpeg, Whisper, MarianMT, IdiomMapper, SRTFormatter).
-4.  Extract and normalize audio (raises FFmpegError on failure).
-5.  Transcribe audio (raises TranscriptionError on failure or no words).
-6.  Apply idiom/CSI mapping (raises MappingError if required file fails).
-7.  Translate remaining entries (raises TranslationError based on strategy).
-8.  Merge translated entries.
-9.  Format into SRT blocks (raises SRTFormatError on invalid data).
-10. Save the final SRT file atomically.
-11. Cleanup temporary files.
-
-🌟 REVISION 2 CHANGES (Based on AnalisisMendalamdanPenguatanErrorHandling.pdf):
-✨ Custom Exceptions: Defined specific error classes (PipelineError, ConfigError, FFmpegError, etc.).
-✨ Robust Input Validation: Checks file existence/permissions for video, mapping, output dir in `main`.
-✨ Configuration Validation: Checks FFmpeg/FFprobe paths and key config values in `AvtPipeline._validate_config`.
-✨ Specific Error Raising: Replaced generic returns/exceptions with specific custom exceptions in each component (FFmpeg, Models, Mapping, SRT).
-✨ Configurable Translation Errors: Added `TRANSLATION_ERROR_STRATEGY` ('fail', 'fallback_english', 'skip').
-✨ Configurable Mapping Requirement: Added `MAPPING_FILE_REQUIRED`.
-✨ Atomic SRT Write: Ensures SRT file integrity during saving.
-✨ Enhanced SRT Formatting Validation: Checks timestamps and entry structure.
-✨ Granular Pipeline Error Handling: Catches specific exceptions in `AvtPipeline.run`.
-✨ Graceful Exit in `main`: Catches pipeline errors and exits with code 1.
-
-🐞 KNOWN ISSUES / TODO for NEXT REVISION:
--   [ ] Implement Phrase-Level Translation for better quality.
--   [ ] Review and Simplify Subtitle Merging Logic.
--   [ ] Add Optional Memory Management (`torch.cuda.empty_cache`, `gc.collect`).
--   [ ] Add Optional FFprobe validation before extraction.
--   [ ] Enhance punctuation handling in idiom mapping.
-'''
-
 import os
 import json
 import subprocess
@@ -616,7 +579,7 @@ class Segmenter:
             
             # Check if it's a pre-mapped idiom segment
             if len(word_buffer) == 1 and word_buffer[0].get("translation_source") == "Idiom/CSI Mapping":
-                self.logger.debug(f"Finalizing pre-mapped segment: {word_buffer[0][\'text\']}")
+                self.logger.debug(f"Finalizing pre-mapped segment: {word_buffer[0]['text']}")
                 return {
                     "original_english_text": word_buffer[0].get("original_english", word_buffer[0]["text"]), # Use original if available
                     "translated_text": word_buffer[0]["text"], # Mapped text is the 'translation'
@@ -905,7 +868,7 @@ class AvtPipeline:
             # 3. Initialize Idiom Mapper (Raises MappingError)
             self.logger.info("Step 3: Initializing Idiom Mapper...")
             # Pass config to mapper for MAPPING_FILE_REQUIRED check
-            self.idiom_mapper = IdiomCsiMapper(mapping_json_path, self.config, self.logge
+            self.idiom_mapper = IdiomCsiMapper(mapping_json_path, self.config, self.logger)
             # 4. Apply Idiom Mapping
             self.logger.info("Step 4: Applying Idiom/CSI Mapping...")
             processed_entries = self.idiom_mapper.map_words_to_idioms(word_entries)
