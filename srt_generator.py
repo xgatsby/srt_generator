@@ -730,8 +730,8 @@ class AvtPipeline:
              raise ConfigError(f"Invalid TRANSLATION_ERROR_STRATEGY: {self.config.get('TRANSLATION_ERROR_STRATEGY')}. Allowed: {allowed_strategies}")
 
         # Check boolean
-        if not isinstance(self.config.get("MAPPING_FILE_REQUIRED"), bool):
-             raise ConfigError(f"Invalid MAPPING_FILE_REQUIRED: {self.config.get("MAPPING_FILE_REQUIRED")}. Must be True or False.")
+        if not isinstance(self.config.get('MAPPING_FILE_REQUIRED'), bool):
+             raise ConfigError(f"Invalid MAPPING_FILE_REQUIRED: {self.config.get('MAPPING_FILE_REQUIRED')}. Must be True or False.")
 
         # Validate Segmentation Configs
         allowed_segmentation_strategies = ["pause", "max_words", "combined"]
@@ -744,24 +744,24 @@ class AvtPipeline:
             if pause_threshold < 0:
                 raise ValueError("Pause threshold must be non-negative")
         except (TypeError, ValueError) as e:
-            raise ConfigError(f"Invalid SEGMENTATION_PAUSE_THRESHOLD_SEC: {self.config.get("SEGMENTATION_PAUSE_THRESHOLD_SEC")}. Must be non-negative number.") from e
+            raise ConfigError(f"Invalid SEGMENTATION_PAUSE_THRESHOLD_SEC: {self.config.get('SEGMENTATION_PAUSE_THRESHOLD_SEC')}. Must be non-negative number.") from e
 
         try:
             max_words = int(self.config.get("SEGMENTATION_MAX_WORDS"))
             if max_words <= 0:
                 raise ValueError("Max words must be positive")
         except (TypeError, ValueError) as e:
-            raise ConfigError(f"Invalid SEGMENTATION_MAX_WORDS: {self.config.get("SEGMENTATION_MAX_WORDS")}. Must be positive integer.") from e
+            raise ConfigError(f"Invalid SEGMENTATION_MAX_WORDS: {self.config.get('SEGMENTATION_MAX_WORDS')}. Must be positive integer.") from e
 
         try:
             max_duration = float(self.config.get("SEGMENTATION_MAX_DURATION_SEC"))
             if max_duration < 0:
                 raise ValueError("Max duration must be non-negative")
         except (TypeError, ValueError) as e:
-            raise ConfigError(f"Invalid SEGMENTATION_MAX_DURATION_SEC: {self.config.get("SEGMENTATION_MAX_DURATION_SEC")}. Must be non-negative number.") from e
+            raise ConfigError(f"Invalid SEGMENTATION_MAX_DURATION_SEC: {self.config.get('SEGMENTATION_MAX_DURATION_SEC')}. Must be non-negative number.") from e
 
         if not isinstance(self.config.get("BYPASS_POST_TRANSLATION_MERGE"), bool):
-            raise ConfigError(f"Invalid BYPASS_POST_TRANSLATION_MERGE: {self.config.get("BYPASS_POST_TRANSLATION_MERGE")}. Must be True or False.")
+            raise ConfigError(f"Invalid BYPASS_POST_TRANSLATION_MERGE: {self.config.get('BYPASS_POST_TRANSLATION_MERGE')}. Must be True or False.")
 
         self.logger.info("Configuration validation successful.")
 
