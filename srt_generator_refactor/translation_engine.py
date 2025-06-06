@@ -56,6 +56,9 @@ class TranslationEngine:
         
         self.logger.info(f"Starting segment translation for {len(segments)} segments...")
         
+        # Debug log entry with number of segments received
+        self.logger.debug(f"--- DEBUG TE: Starting translation for {len(segments)} segments ---")
+        
         # Identify segments that need translation
         segments_to_translate = []
         segment_indices = []
@@ -71,8 +74,22 @@ class TranslationEngine:
         
         self.logger.info(f"Found {len(segments_to_translate)} segments needing NMT translation.")
         
+        # Debug log segments needing NMT
+        self.logger.debug(f"--- DEBUG TE: Found {len(segments_to_translate)} segments needing NMT translation ---")
+        
+        # Log the texts to be translated (up to 5)
+        display_count = min(5, len(segments_to_translate))
+        if display_count > 0:
+            for i in range(display_count):
+                segment_idx = segment_indices[i]
+                self.logger.debug(f"--- DEBUG TE: Segment {segment_idx} NMT Input: '{segments[segment_idx]['original_text']}' ---")
+            
+            if len(segments_to_translate) > display_count:
+                self.logger.debug(f"--- DEBUG TE: ... (total {len(segments_to_translate)} segments for NMT) ---")
+        
         # If no segments need translation, return the original segments
         if not segments_to_translate:
+            self.logger.debug("--- DEBUG TE: No segments need translation, returning original segments ---")
             return segments
         
         # Translate the segments
@@ -80,9 +97,16 @@ class TranslationEngine:
             translated_texts = self.translate_batch(segments_to_translate)
             
             # Update the segments with translations
-            for idx, trans_text in zip(segment_indices, translated_texts):
+            for i, (idx, trans_text) in enumerate(zip(segment_indices, translated_texts)):
                 segments[idx]["translated_text"] = trans_text
                 segments[idx]["translation_source"] = "NMT_TRANSLATED"
+                
+                # Debug log translated segments (up to 5)
+                if i < 5:
+                    self.logger.debug(f"--- DEBUG TE: Segment {idx} NMT Output: '{trans_text}' ---")
+            
+            # Debug log summary of segments processed
+            self.logger.debug(f"--- DEBUG TE: Successfully translated {len(translated_texts)} segments ---")
             
             self.logger.info(f"Successfully translated {len(translated_texts)} segments.")
             return segments

@@ -77,12 +77,18 @@ class IdiomCsiMapper:
         """
         if not self.mapping:
             self.logger.info("No idiom mapping loaded or available. All segments will be marked for NMT.")
+            self.logger.debug("--- DEBUG IM: No idiom mapping available. All segments will proceed to NMT ---")
             return segments
         
         self.logger.info(f"Applying idiom/CSI mapping to {len(segments)} segments...")
-        mapped_segments = []
         
-        for segment in segments:
+        # Debug log entry with number of segments received
+        self.logger.debug(f"--- DEBUG IM: Starting idiom mapping for {len(segments)} segments with {len(self.mapping)} idiom rules ---")
+        
+        mapped_segments = []
+        idiom_mapped_count = 0
+        
+        for segment_idx, segment in enumerate(segments):
             # Skip segments that don't have the required fields
             if not isinstance(segment, dict) or not all(k in segment for k in ("original_text", "start_time", "end_time")):
                 self.logger.warning(f"Skipping invalid segment during idiom mapping: {segment}")
@@ -92,25 +98,50 @@ class IdiomCsiMapper:
             # Normalize the segment text for matching
             normalized_text = self._normalize_text(segment["original_text"])
             
+            # Debug log segment text and normalized form (for first 5 segments)
+            if segment_idx < 5:
+                self.logger.debug(f"--- DEBUG IM: Segment {segment_idx}: original_text='{segment['original_text']}', normalized_text='{normalized_text}' ---")
+            
             # Check if the entire segment matches an idiom
             found_match = False
+            idiom_comparisons = 0
+            
             for idiom_key, idiom_translation in self.mapping.items():
                 normalized_idiom = self._normalize_text(idiom_key)
+                
+                # Debug log comparison between segment text and idiom keys (for first 5 segments and first 5 idioms)
+                if segment_idx < 5 and idiom_comparisons < 5:
+                    self.logger.debug(f"--- DEBUG IM: Comparing seg_norm='{normalized_text}' WITH idiom_norm='{normalized_idiom}' (original='{idiom_key}') ---")
+                
+                idiom_comparisons += 1
+                
                 if normalized_text == normalized_idiom:
                     # Match found, update the segment
                     self.logger.debug(f"Mapped idiom for segment: '{segment['original_text']}' -> '{idiom_translation}'")
+                    
+                    # Debug log successful idiom match at INFO level
+                    self.logger.info(f"Idiom match found for segment {segment_idx}: '{segment['original_text']}' -> '{idiom_translation}'")
+                    
                     segment["translated_text"] = idiom_translation
                     segment["translation_source"] = "IDIOM_MAPPED"
                     found_match = True
+                    idiom_mapped_count += 1
                     break
             
             # If no match found, keep the segment as is (NEEDS_NMT)
             if not found_match:
                 self.logger.debug(f"No idiom match for segment: '{segment['original_text']}'")
+                
+                # Debug log segments proceeding to NMT (for first 5 segments)
+                if segment_idx < 5:
+                    self.logger.debug(f"--- DEBUG IM: No idiom match for segment {segment_idx}. Will proceed to NMT ---")
             
             mapped_segments.append(segment)
         
-        self.logger.info(f"Idiom mapping complete. {sum(1 for s in mapped_segments if s.get('translation_source') == 'IDIOM_MAPPED')} segments mapped.")
+        # Debug log summary of segments processed
+        self.logger.debug(f"--- DEBUG IM: Idiom mapping complete. Processed {len(segments)} segments, {idiom_mapped_count} were mapped to idioms, {len(segments) - idiom_mapped_count} will proceed to NMT ---")
+        
+        self.logger.info(f"Idiom mapping complete. {idiom_mapped_count} segments mapped.")
         return mapped_segments
 
     def map_words_to_idioms(self, word_entries: List[Dict]) -> List[Dict]:

@@ -114,8 +114,21 @@ class TranscriptionEngine:
         # Raise error if no valid words found
         if not word_entries:
             self.logger.error(f"Transcription for {audio_path} yielded no valid word timestamps after processing.")
+            self.logger.debug("--- DEBUG TE: WARNING - No valid word entries found after processing ---")
             raise TranscriptionError("Transcription completed but yielded no valid word timestamps.")
 
         self.logger.info(f"Extracted and validated {len(word_entries)} word-level entries from {audio_path}.")
+        
+        # Debug logging for word entries
+        self.logger.debug("--- DEBUG TE: Raw Word Entries Begin ---")
+        display_count = min(5, len(word_entries))
+        for i in range(display_count):
+            self.logger.debug(f"--- DEBUG TE: RawWordEntry {i}: {word_entries[i]} ---")
+        
+        if len(word_entries) > display_count:
+            self.logger.debug(f"--- DEBUG TE: ... (total {len(word_entries)} entries) ---")
+        
+        self.logger.debug("--- DEBUG TE: Raw Word Entries End ---")
+        
         return word_entries
 

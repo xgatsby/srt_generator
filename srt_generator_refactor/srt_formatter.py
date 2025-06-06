@@ -87,10 +87,13 @@ class SRTFormatter:
         
         self.logger.info(f"Creating SRT content from {len(segments)} segments...")
         
+        # Debug log entry with number of segments and formatting parameters
+        self.logger.debug(f"--- DEBUG SF: Starting SRT formatting for {len(segments)} segments with parameters: max_lines_per_block={self.max_lines_per_block}, min_duration_per_block={self.min_duration_per_block}, minimal_block_pause={self.minimal_block_pause} ---")
+        
         srt_blocks = []
         block_index = 1  # SRT block counter
         
-        for segment in segments:
+        for seg_idx, segment in enumerate(segments):
             # Skip segments that don't have the required fields or have empty text
             if not isinstance(segment, dict) or not all(k in segment for k in ("translated_text", "start_time", "end_time")):
                 self.logger.warning(f"Skipping invalid segment during SRT formatting: {segment}")
@@ -100,11 +103,25 @@ class SRTFormatter:
                 self.logger.debug(f"Skipping empty text segment: {segment}")
                 continue
             
+            # Debug log segment input details (for first 5 segments)
+            if seg_idx < 5:
+                # Truncate text if too long for logging
+                text_preview = str(segment["translated_text"])[:50]
+                if len(str(segment["translated_text"])) > 50:
+                    text_preview += "..."
+                self.logger.debug(f"--- DEBUG SF: Processing Segment {seg_idx}: Text='{text_preview}', start_time={segment['start_time']:.3f}, end_time={segment['end_time']:.3f} ---")
+            
             # Format the text into lines
             formatted_lines = self._format_text_for_srt(str(segment["translated_text"]))
             if not formatted_lines:
                 self.logger.debug(f"Skipping segment with no formatted lines: {segment}")
                 continue
+            
+            # Debug log formatted lines (for first 5 segments)
+            if seg_idx < 5:
+                self.logger.debug(f"--- DEBUG SF: Segment {seg_idx} produced {len(formatted_lines)} formatted lines ---")
+                for i, line in enumerate(formatted_lines):
+                    self.logger.debug(f"--- DEBUG SF: Segment {seg_idx} Line {i}: '{line}' ---")
             
             # Determine if we need to split this segment into multiple SRT blocks
             num_target_lines_per_block = self.max_lines_per_block
@@ -124,6 +141,12 @@ class SRTFormatter:
                 block_text = "\n".join(formatted_lines)
                 srt_block = f"{block_index}\n{start_time_str} --> {end_time_str}\n{block_text}\n"
                 srt_blocks.append(srt_block)
+                
+                # Debug log SRT block creation details (for first 10 blocks)
+                if block_index <= 10:
+                    block_text_display = block_text.replace('\n', ' | ')
+                    self.logger.debug(f"--- DEBUG SF: Creating SRT Block {block_index}: {start_time_str} --> {end_time_str} TEXT: '{block_text_display}' ---")
+                
                 block_index += 1
             else:
                 # Complex case: split into multiple SRT blocks
@@ -132,6 +155,9 @@ class SRTFormatter:
                 if duration_per_block <= 0:
                     duration_per_block = self.min_duration_per_block
                 duration_per_block_approx = duration_per_block / num_srt_blocks
+                
+                # Debug log split information
+                self.logger.debug(f"--- DEBUG SF: Splitting segment {seg_idx} into {num_srt_blocks} SRT blocks ---")
                 
                 current_block_start_time = segment["start_time"]
                 
@@ -157,11 +183,20 @@ class SRTFormatter:
                     block_text = "\n".join(current_block_lines)
                     srt_block = f"{block_index}\n{start_time_str} --> {end_time_str}\n{block_text}\n"
                     srt_blocks.append(srt_block)
+                    
+                    # Debug log SRT block creation details (for first 10 blocks)
+                    if block_index <= 10:
+                        block_text_display = block_text.replace('\n', ' | ')
+                        self.logger.debug(f"--- DEBUG SF: Creating SRT Block {block_index} (split {i+1}/{num_srt_blocks}): {start_time_str} --> {end_time_str} TEXT: '{block_text_display}' ---")
+                    
                     block_index += 1
                     
                     # Set start time for next block
                     if not is_last_block:
                         current_block_start_time = current_block_end_time + self.minimal_block_pause
+        
+        # Debug log summary of SRT blocks created
+        self.logger.debug(f"--- DEBUG SF: SRT formatting complete. Created {len(srt_blocks)} SRT blocks from {len(segments)} segments ---")
         
         self.logger.info(f"SRT formatting complete. Created {len(srt_blocks)} SRT blocks.")
         return "\n".join(srt_blocks)

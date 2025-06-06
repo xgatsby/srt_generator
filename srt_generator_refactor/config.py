@@ -10,7 +10,7 @@ import torch
 DEFAULT_APP_CONFIG = {
     "FFMPEG_PATH": "ffmpeg",
     "FFPROBE_PATH": "ffprobe",
-    "LOG_LEVEL": "INFO",
+    "LOG_LEVEL": "DEBUG",
     "LOG_FORMAT": "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     "TEMP_AUDIO_FILENAME": "temp_normalized_audio.wav",
     "CLEANUP_TEMP_AUDIO": True,
