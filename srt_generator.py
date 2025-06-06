@@ -933,7 +933,8 @@ class AvtPipeline:
                  self.logger.warning("Final SRT content is empty.")
 
             # 9. Save SRT File Atomically (Point 9)
-            self.logger.info(f"Step 9: Saving SRT file to: {output_srt_path}")          temp_srt_path = output_srt_path + ".tmp"
+            self.logger.info(f"Step 9: Saving SRT file to: {output_srt_path}")
+            temp_srt_path = output_srt_path + ".tmp"
             try:
                 with open(temp_srt_path, 'w', encoding='utf-8') as f:
                     f.write(srt_content)
