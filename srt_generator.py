@@ -1,4 +1,3 @@
-'''
 🚀 ULTRA-OPTIMIZED Word-Level SRT Generator v3.3 (Manus Enhanced & Robustified - Revision 2: Error Handling)
 🎯 Production-Ready Enterprise Solution with AI-Powered Quality Enhancement & AVT Specialization
 ⚡ Maximum Performance & Precision Implementation for English -> Indonesian Translation
@@ -96,7 +95,7 @@ DEFAULT_APP_CONFIG = {
     "AUDIO_TARGET_LOUDNESS_LUFS": -16.0,
     "AUDIO_TARGET_LPR_DB": 15.0,
     "AUDIO_TARGET_SRATE_HZ": 16000, # Must be positive integer
-    "WHISPER_MODEL_NAME": "medium", # atau "small"
+    "WHISPER_MODEL_NAME": "large-v3", # atau "small"
     "WHISPER_DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
     "WHISPER_LANGUAGE": "en",
     "WHISPER_FP16": torch.cuda.is_available(),
@@ -107,11 +106,18 @@ DEFAULT_APP_CONFIG = {
 
     "MARIANMT_MODEL_PATH_EN_ID": "Helsinki-NLP/opus-mt-en-id",
     "MARIANMT_DEVICE": "cuda" if torch.cuda.is_available() else "cpu",
-    "MARIANMT_BATCH_SIZE": 4, # atau 2
+    "MARIANMT_BATCH_SIZE": 2, # atau 2
 
     # Error Handling Configs
     "MAPPING_FILE_REQUIRED": False, # If True, pipeline fails if mapping file is missing/invalid (Point 7)
     "TRANSLATION_ERROR_STRATEGY": "fail", # Options: 'fail', 'fallback_english', 'skip' (Point 6)
+
+    # Segmentation Configs
+    "SEGMENTATION_STRATEGY": "pause", # Options: 'pause', 'max_words', 'combined'
+    "SEGMENTATION_PAUSE_THRESHOLD_SEC": 0.7, # Threshold for pause-based segmentation
+    "SEGMENTATION_MAX_WORDS": 10, # Max words per segment for 'max_words' or 'combined' strategy
+    "SEGMENTATION_MAX_DURATION_SEC": 5.0, # Max duration per segment (optional limit)
+    "BYPASS_POST_TRANSLATION_MERGE": True, # Bypass the old merge_close_timed_words after segment translation
 
     "SRT_MAX_CHARS_PER_LINE": 42,
     "SRT_MAX_LINES_PER_BLOCK": 2,
@@ -580,6 +586,134 @@ class SRTFormatter:
 
         return "\n".join(srt_blocks)
 
+# --- Segmentation Component ---
+
+class Segmenter:
+    """Segments word entries into coherent phrases or sentences for translation."""
+    def __init__(self, config: dict, logger: logging.Logger):
+        self.config = config
+        self.logger = logger
+        self.strategy = config.get("SEGMENTATION_STRATEGY", "pause")
+        self.pause_threshold = config.get("SEGMENTATION_PAUSE_THRESHOLD_SEC", 0.7)
+        self.max_words = config.get("SEGMENTATION_MAX_WORDS", 10)
+        self.max_duration = config.get("SEGMENTATION_MAX_DURATION_SEC", 5.0)
+        self.logger.info(f"Segmenter initialized with strategy: {self.strategy}, pause: {self.pause_threshold}s, max_words: {self.max_words}, max_duration: {self.max_duration}s")
+
+    def segment(self, processed_entries: List[Dict]) -> List[Dict]:
+        """Segments processed entries (word-level or idiom-mapped) into translation units."""
+        if not processed_entries:
+            return []
+
+        self.logger.info(f"Starting segmentation for {len(processed_entries)} entries using strategy \'{self.strategy}\'.")
+        segments = []
+        current_segment_words = []
+        last_word_end_time = None
+
+        def finalize_segment(word_buffer: List[Dict]):
+            """Helper to create a segment dict from a buffer of word entries."""
+            if not word_buffer:
+                return None
+            
+            # Check if it's a pre-mapped idiom segment
+            if len(word_buffer) == 1 and word_buffer[0].get("translation_source") == "Idiom/CSI Mapping":
+                self.logger.debug(f"Finalizing pre-mapped segment: {word_buffer[0][\'text\']}")
+                return {
+                    "original_english_text": word_buffer[0].get("original_english", word_buffer[0]["text"]), # Use original if available
+                    "translated_text": word_buffer[0]["text"], # Mapped text is the 'translation'
+                    "start_time": word_buffer[0]["start"],
+                    "end_time": word_buffer[0]["end"],
+                    "translation_source": "Idiom/CSI Mapping"
+                }
+            
+            # Otherwise, it's an NMT segment
+            segment_text = " ".join([word["text"] for word in word_buffer])
+            start_time = word_buffer[0]["start"]
+            end_time = word_buffer[-1]["end"]
+            self.logger.debug(f"Finalizing NMT segment: \'{segment_text}\' ({start_time:.2f}s - {end_time:.2f}s)")
+            return {
+                "original_english_text": segment_text,
+                "translated_text": None, # To be filled by TranslationEngine
+                "start_time": start_time,
+                "end_time": end_time,
+                "translation_source": "NMT_Segment"
+            }
+
+        for i, entry in enumerate(processed_entries):
+            # Basic validation
+            if not isinstance(entry, dict) or not all(k in entry for k in ("text", "start", "end", "translation_source")):
+                self.logger.warning(f"Skipping invalid entry during segmentation at index {i}: {entry}")
+                continue
+            
+            current_word_start_time = entry["start"]
+            current_word_end_time = entry["end"]
+            is_idiom_mapped = entry.get("translation_source") == "Idiom/CSI Mapping"
+
+            # If the current entry is an idiom, it forms its own segment.
+            # Finalize any pending NMT segment first.
+            if is_idiom_mapped:
+                if current_segment_words:
+                    segment_dict = finalize_segment(current_segment_words)
+                    if segment_dict: segments.append(segment_dict)
+                    current_segment_words = []
+                    last_word_end_time = None # Reset time for next NMT segment
+                
+                # Add the idiom segment directly
+                idiom_segment = finalize_segment([entry]) # Pass as list
+                if idiom_segment: segments.append(idiom_segment)
+                last_word_end_time = current_word_end_time # Update time for potential next NMT segment
+                continue
+
+            # --- Handle NMT words --- 
+            # Calculate pause if applicable
+            pause_duration = (current_word_start_time - last_word_end_time) if last_word_end_time is not None else 0
+            
+            # Determine if a break should occur BEFORE adding the current word
+            should_break = False
+            if current_segment_words: # Only break if there's an existing segment being built
+                segment_duration = current_word_end_time - current_segment_words[0]["start"]
+                word_count = len(current_segment_words)
+
+                if self.strategy == "pause":
+                    if pause_duration > self.pause_threshold:
+                        self.logger.debug(f"Break due to pause > {self.pause_threshold}s (pause: {pause_duration:.2f}s)")
+                        should_break = True
+                elif self.strategy == "max_words":
+                    if word_count >= self.max_words:
+                        self.logger.debug(f"Break due to max words >= {self.max_words} (count: {word_count})")
+                        should_break = True
+                elif self.strategy == "combined":
+                    if pause_duration > self.pause_threshold:
+                        self.logger.debug(f"Break due to pause > {self.pause_threshold}s (pause: {pause_duration:.2f}s)")
+                        should_break = True
+                    elif word_count >= self.max_words:
+                        self.logger.debug(f"Break due to max words >= {self.max_words} (count: {word_count})")
+                        should_break = True
+                
+                # Optional duration check (applies to all strategies if > 0)
+                if not should_break and self.max_duration > 0 and segment_duration > self.max_duration:
+                     self.logger.debug(f"Break due to max duration > {self.max_duration}s (duration: {segment_duration:.2f}s)")
+                     should_break = True
+
+            # If break condition met, finalize the previous segment
+            if should_break:
+                segment_dict = finalize_segment(current_segment_words)
+                if segment_dict: segments.append(segment_dict)
+                current_segment_words = [] # Start a new segment buffer
+                # last_word_end_time is updated below after adding the current word
+
+            # Add the current NMT word to the buffer
+            current_segment_words.append(entry)
+            last_word_end_time = current_word_end_time
+
+        # Finalize any remaining words in the buffer
+        if current_segment_words:
+            segment_dict = finalize_segment(current_segment_words)
+            if segment_dict: segments.append(segment_dict)
+
+        self.logger.info(f"Segmentation complete. Produced {len(segments)} segments.")
+        return segments
+
+
 # --- Pipeline ---
 
 class AvtPipeline:
@@ -597,6 +731,7 @@ class AvtPipeline:
         self.transcriber = TranscriptionEngine(self.config, self.logger)
         self.translator = TranslationEngine(self.config, self.logger)
         self.idiom_mapper = None # Initialized in run()
+        self.segmenter = Segmenter(self.config, self.logger) # Initialize Segmenter
         self.srt_formatter = SRTFormatter(self.config, self.logger)
         self.temp_audio_path = None
 
@@ -633,7 +768,37 @@ class AvtPipeline:
 
         # Check boolean
         if not isinstance(self.config.get("MAPPING_FILE_REQUIRED"), bool):
-             raise ConfigError(f"Invalid MAPPING_FILE_REQUIRED: {self.config.get('MAPPING_FILE_REQUIRED')}. Must be True or False.")
+             raise ConfigError(f"Invalid MAPPING_FILE_REQUIRED: {self.config.get("MAPPING_FILE_REQUIRED")}. Must be True or False.")
+
+        # Validate Segmentation Configs
+        allowed_segmentation_strategies = ["pause", "max_words", "combined"]
+        seg_strategy = self.config.get("SEGMENTATION_STRATEGY")
+        if seg_strategy not in allowed_segmentation_strategies:
+            raise ConfigError(f"Invalid SEGMENTATION_STRATEGY: {seg_strategy}. Allowed: {allowed_segmentation_strategies}")
+
+        try:
+            pause_threshold = float(self.config.get("SEGMENTATION_PAUSE_THRESHOLD_SEC"))
+            if pause_threshold < 0:
+                raise ValueError("Pause threshold must be non-negative")
+        except (TypeError, ValueError) as e:
+            raise ConfigError(f"Invalid SEGMENTATION_PAUSE_THRESHOLD_SEC: {self.config.get("SEGMENTATION_PAUSE_THRESHOLD_SEC")}. Must be non-negative number.") from e
+
+        try:
+            max_words = int(self.config.get("SEGMENTATION_MAX_WORDS"))
+            if max_words <= 0:
+                raise ValueError("Max words must be positive")
+        except (TypeError, ValueError) as e:
+            raise ConfigError(f"Invalid SEGMENTATION_MAX_WORDS: {self.config.get("SEGMENTATION_MAX_WORDS")}. Must be positive integer.") from e
+
+        try:
+            max_duration = float(self.config.get("SEGMENTATION_MAX_DURATION_SEC"))
+            if max_duration < 0:
+                raise ValueError("Max duration must be non-negative")
+        except (TypeError, ValueError) as e:
+            raise ConfigError(f"Invalid SEGMENTATION_MAX_DURATION_SEC: {self.config.get("SEGMENTATION_MAX_DURATION_SEC")}. Must be non-negative number.") from e
+
+        if not isinstance(self.config.get("BYPASS_POST_TRANSLATION_MERGE"), bool):
+            raise ConfigError(f"Invalid BYPASS_POST_TRANSLATION_MERGE: {self.config.get("BYPASS_POST_TRANSLATION_MERGE")}. Must be True or False.")
 
         self.logger.info("Configuration validation successful.")
 
@@ -740,43 +905,72 @@ class AvtPipeline:
             # 3. Initialize Idiom Mapper (Raises MappingError)
             self.logger.info("Step 3: Initializing Idiom Mapper...")
             # Pass config to mapper for MAPPING_FILE_REQUIRED check
-            self.idiom_mapper = IdiomCsiMapper(mapping_json_path, self.config, self.logger)
-
+            self.idiom_mapper = IdiomCsiMapper(mapping_json_path, self.config, self.logge
             # 4. Apply Idiom Mapping
             self.logger.info("Step 4: Applying Idiom/CSI Mapping...")
             processed_entries = self.idiom_mapper.map_words_to_idioms(word_entries)
 
-            # 5. Translate Non-Mapped Entries (Raises TranslationError, ModelLoadError)
-            self.logger.info("Step 5: Translating Non-Mapped Entries...")
-            entries_to_translate_indices = [i for i, entry in enumerate(processed_entries) if entry.get("translation_source") == "NMT"]
-            texts_to_translate = [processed_entries[i]['text'] for i in entries_to_translate_indices]
+            # 5. Segment Entries
+            self.logger.info("Step 5: Segmenting entries for translation...")
+            # Input to segmenter is the list potentially containing mixed word-level entries (marked NMT)
+            # and multi-word idiom entries (marked Idiom/CSI Mapping)
+            segments = self.segmenter.segment(processed_entries)
+
+            # 6. Translate NMT Segments (Raises TranslationError, ModelLoadError)
+            self.logger.info("Step 6: Translating NMT Segments...")
+            nmt_segment_indices = [i for i, seg in enumerate(segments) if seg.get("translation_source") == "NMT_Segment"]
+            texts_to_translate = [segments[i]["original_english_text"] for i in nmt_segment_indices]
 
             if texts_to_translate:
-                self.logger.info(f"Found {len(texts_to_translate)} words/entries needing NMT ({self.translator.error_strategy} strategy).")
+                self.logger.info(f"Found {len(texts_to_translate)} segments needing NMT ({self.translator.error_strategy} strategy).")
                 translated_texts = self.translator.translate_batch(texts_to_translate)
                 # Validation of count happens inside translate_batch
-                for idx, trans_text in zip(entries_to_translate_indices, translated_texts):
-                    processed_entries[idx]['text'] = trans_text
-                    processed_entries[idx]['translation_source'] = f"NMT ({self.translator.error_strategy} applied)" if trans_text != texts_to_translate[entries_to_translate_indices.index(idx)] else "NMT (Translated)"
-                self.logger.info("NMT translation step complete.")
+                if len(translated_texts) != len(nmt_segment_indices):
+                    # This should be caught by translate_batch, but double-check
+                    raise TranslationError(f"Mismatch after translation. Expected {len(nmt_segment_indices)} translations, got {len(translated_texts)}.")
+                
+                for i, trans_text in zip(nmt_segment_indices, translated_texts):
+                    # Update the segment dictionary with the translated text
+                    segments[i]["translated_text"] = trans_text 
+                    # Optionally update source to show translation status/strategy
+                    # segments[i]["translation_source"] = f"NMT_Segment ({self.translator.error_strategy} applied)" if trans_text != texts_to_translate[nmt_segment_indices.index(i)] else "NMT_Segment (Translated)"
+                    segments[i]["translation_source"] = "NMT_Segment (Translated)" # Keep it simple for now
+
+                self.logger.info("NMT segment translation step complete.")
             else:
-                self.logger.info("No entries required NMT translation.")
+                self.logger.info("No segments required NMT translation.")
 
-            # 6. Merge Entries for Readability
-            self.logger.info("Step 6: Merging Subtitle Entries...")
-            merged_entries = self.merge_close_timed_words(processed_entries)
-            if not merged_entries:
-                 self.logger.warning("Merging resulted in zero subtitle entries. Output SRT will be empty.")
+            # Prepare final list for SRT formatting (map segment structure to expected format)
+            final_timed_entries = []
+            for seg in segments:
+                final_timed_entries.append({
+                    "text": seg.get("translated_text") or seg.get("original_english_text"), # Use translated if available, else original/mapped
+                    "start": seg["start_time"],
+                    "end": seg["end_time"]
+                    # Add other fields if needed by downstream processes like merging
+                })
 
-            # 7. Format to SRT (Raises SRTFormatError)
-            self.logger.info("Step 7: Formatting to SRT...")
-            srt_content = self.srt_formatter.create_srt_content(merged_entries)
+            # 7. Merge Entries (Optional - based on config)
+            if not self.config.get("BYPASS_POST_TRANSLATION_MERGE"): 
+                self.logger.info("Step 7: Merging Subtitle Entries (Post-Translation)...")
+                # Pass the list of final segments to the merge function
+                # Note: The merge logic might need review for segment-level merging effectiveness
+                merged_entries = self.merge_close_timed_words(final_timed_entries) 
+                if not merged_entries:
+                    self.logger.warning("Merging resulted in zero subtitle entries. Output SRT will be empty.")
+                entries_for_srt = merged_entries
+            else:
+                self.logger.info("Step 7: Skipping Post-Translation Merging as configured.")
+                entries_for_srt = final_timed_entries # Use the direct segments
+
+            # 8. Format to SRT (Raises SRTFormatError)
+            self.logger.info("Step 8: Formatting to SRT...")
+            srt_content = self.srt_formatter.create_srt_content(entries_for_srt)
             if not srt_content:
                  self.logger.warning("Final SRT content is empty.")
 
-            # 8. Save SRT File Atomically (Point 9)
-            self.logger.info(f"Step 8: Saving SRT file to: {output_srt_path}")
-            temp_srt_path = output_srt_path + ".tmp"
+            # 9. Save SRT File Atomically (Point 9)
+            self.logger.info(f"Step 9: Saving SRT file to: {output_srt_path}")          temp_srt_path = output_srt_path + ".tmp"
             try:
                 with open(temp_srt_path, 'w', encoding='utf-8') as f:
                     f.write(srt_content)
@@ -887,4 +1081,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
